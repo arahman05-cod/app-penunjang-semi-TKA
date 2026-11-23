@@ -1216,8 +1216,8 @@ function doPost(e) {
         const text = await res.text();
         const parsed = JSON.parse(text);
 
-        if (parsed && parsed.ok && parsed.data) {
-          const data = parsed.data;
+        const data = parsed && parsed.data ? parsed.data : parsed;
+        if (parsed && parsed.ok && data) {
           if (Array.isArray(data.teachers) && data.teachers.length > 0) {
             state.teachers = mergeTeachersWithSeeds(data.teachers);
           }
@@ -6256,3 +6256,4 @@ Berikan penilaian OBJEKTIF dan KRITIS:
   </script>
 </body>
 </html>
+
