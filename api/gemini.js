@@ -5,29 +5,63 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'API Key belum dipasang di Vercel.' });
+    console.error('ERROR: GEMINI_API_KEY belum dipasang di Vercel');
+    return res.status(500).json({ error: 'GEMINI_API_KEY belum dipasang di Vercel.' });
   }
 
   try {
-    const { contents, systemInstruction, generationConfig, model } = req.body;
-    const selectedModel = model || 'gemini-2.5-flash';
+    const { contents, systemInstruction, generationConfig, model } = req.body || {};
 
-    const payload = { contents };
+    const normalizedContents =
+      typeof contents === 'string'
+        ? [{ parts: [{ text: contents }] }]
+        : contents;
+
+    const payload = { contents: normalizedContents };
     if (systemInstruction) payload.systemInstruction = systemInstruction;
     if (generationConfig) payload.generationConfig = generationConfig;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }
-    );
+    // Mencoba model yang diminta, lalu otomatis beralih ke model aktif jika terjadi 404
+    const modelsToTry = [
+      ...new Set([
+        model,
+        'gemini-2.5-flash',
+        'gemini-3-flash-preview',
+        'gemini-2.0-flash',
+      ].filter(Boolean)),
+    ];
 
-    const data = await response.json();
-    return res.status(response.status).json(data);
+    let lastStatus = 500;
+    let lastData = { error: 'Tidak ada model AI yang merespons.' };
+
+    for (const currentModel of modelsToTry) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        return res.status(200).json(data);
+      }
+
+      lastStatus = response.status;
+      lastData = data;
+      console.error(`Model ${currentModel} gagal (${response.status}):`, JSON.stringify(data));
+
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    return res.status(lastStatus).json(lastData);
   } catch (error) {
-    return res.status(500).json({ error: 'Gagal menghubungi AI: ' + error.message });
+    console.error('Server Error:', error.message);
+    return res.status(500).json({ error: 'Terjadi kesalahan server: ' + error.message });
   }
 };
