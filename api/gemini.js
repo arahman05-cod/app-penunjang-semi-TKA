@@ -1,4 +1,4 @@
-module.exports = async function handler(req, res) {
+ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Metode tidak diizinkan' });
   }
@@ -21,14 +21,19 @@ module.exports = async function handler(req, res) {
     if (systemInstruction) payload.systemInstruction = systemInstruction;
     if (generationConfig) payload.generationConfig = generationConfig;
 
-    // Mencoba model yang diminta, lalu otomatis beralih ke model aktif jika terjadi 404
+    // Prioritaskan gemini-3-flash-preview agar langsung merespons 200 OK tanpa 404
+    const requestedModel =
+      model && model !== 'gemini-2.5-flash' ? model : null;
+
     const modelsToTry = [
-      ...new Set([
-        model,
-        'gemini-2.5-flash',
-        'gemini-3-flash-preview',
-        'gemini-2.0-flash',
-      ].filter(Boolean)),
+      ...new Set(
+        [
+          requestedModel,
+          'gemini-3-flash-preview',
+          'gemini-2.5-flash',
+          'gemini-2.0-flash',
+        ].filter(Boolean)
+      ),
     ];
 
     let lastStatus = 500;
@@ -52,13 +57,14 @@ module.exports = async function handler(req, res) {
 
       lastStatus = response.status;
       lastData = data;
-      console.error(`Model ${currentModel} gagal (${response.status}):`, JSON.stringify(data));
+      console.warn(`Fallback dari ${currentModel} (${response.status}):`, JSON.stringify(data));
 
       if (response.status !== 404) {
         break;
       }
     }
 
+    console.error('Semua model Gemini gagal:', lastStatus, JSON.stringify(lastData));
     return res.status(lastStatus).json(lastData);
   } catch (error) {
     console.error('Server Error:', error.message);
