@@ -6115,9 +6115,95 @@ Berikan penilaian OBJEKTIF dan KRITIS:
       renderApp();
     }
 
+     const ACTIVE_SESSION_STORAGE_KEY = 'pusmendik_tka_2026_active_session_v1';
+
+    function saveActiveSessionState() {
+      try {
+        if (state.currentView === 'login') {
+          localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+          return;
+        }
+        const payload = {
+          currentView: state.currentView,
+          activeTeacherId: state.activeTeacherId,
+          selectedWorkspaceTeacherId: state.selectedWorkspaceTeacherId,
+          proktorTab: state.proktorTab,
+          tpSubTab: state.tpSubTab,
+          studentSession:
+            state.currentView.startsWith('student_') && state.studentSession?.profile
+              ? {
+                  ...state.studentSession,
+                  violationWarningModal: null,
+                  isEnteringFullscreen: false,
+                  hasEnteredFullscreen: false,
+                }
+              : null,
+        };
+        localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(payload));
+      } catch {}
+    }
+
+    function restoreActiveSessionState() {
+      try {
+        const raw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved || !saved.currentView || saved.currentView === 'login') return;
+
+        if (saved.currentView === 'proktor' && saved.activeTeacherId) {
+          const matched = state.teachers.find((t) => t.id === saved.activeTeacherId);
+          if (!matched) {
+            localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+            return;
+          }
+          state.activeTeacherId = matched.id;
+          state.proktorTab = saved.proktorTab || 'beranda';
+          state.tpSubTab = saved.tpSubTab || 'tp_generator';
+          if (matched.role === 'guru') {
+            state.selectedWorkspaceTeacherId = matched.id;
+          } else if (
+            saved.selectedWorkspaceTeacherId &&
+            state.teachers.some((t) => t.id === saved.selectedWorkspaceTeacherId)
+          ) {
+            state.selectedWorkspaceTeacherId = saved.selectedWorkspaceTeacherId;
+          }
+          const ws = getWorkspaceTeacher() || matched;
+          state.examDurationInput = Number(ws.durationMinutes) || 60;
+          const wsQCount = state.questions.filter((q) => isOwnedByTeacher(q, ws)).length;
+          state.examQuestionCountInput =
+            wsQCount > 0
+              ? Math.min(wsQCount, Number(ws.targetQuestionCount) || wsQCount)
+              : Number(ws.targetQuestionCount) || 5;
+          state.currentView = 'proktor';
+          return;
+        }
+
+        if (
+          ['student_confirm', 'student_exam', 'student_result'].includes(saved.currentView) &&
+          saved.studentSession?.profile &&
+          saved.studentSession?.teacher
+        ) {
+          state.studentSession = {
+            ...state.studentSession,
+            ...saved.studentSession,
+            violationWarningModal: null,
+            isEnteringFullscreen: false,
+            hasEnteredFullscreen: false,
+          };
+          state.currentView = saved.currentView;
+        }
+      } catch {
+        try {
+          localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+        } catch {}
+      }
+    }
+
     function renderApp() {
       const root = document.getElementById('app-root');
       if (!root) return;
+
+      saveActiveSessionState();
 
       if (state.currentView !== 'proktor') {
         const drawerContainer = document.getElementById('feature-drawer-container');
@@ -6157,6 +6243,9 @@ Berikan penilaian OBJEKTIF dan KRITIS:
         if (state.currentView === 'student_exam') {
           if (state.studentSession.remainingSeconds > 0) {
             state.studentSession.remainingSeconds -= 1;
+            if (state.studentSession.remainingSeconds % 5 === 0) {
+              saveActiveSessionState();
+            }
             const timerEl = document.getElementById('exam-timer');
             if (timerEl) {
               timerEl.innerHTML = `<span>Sisa Waktu: ${formatCountdown(state.studentSession.remainingSeconds)}</span>`;
@@ -6245,6 +6334,7 @@ Berikan penilaian OBJEKTIF dan KRITIS:
 
     window.onload = async function () {
       loadLocalBackupDb();
+      restoreActiveSessionState();
       state.geminiApiKeyInput = getStoredGeminiApiKey();
       setupStudentExamSecurityListeners();
       renderApp();
@@ -6256,4 +6346,3 @@ Berikan penilaian OBJEKTIF dan KRITIS:
   </script>
 </body>
 </html>
-
