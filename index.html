@@ -396,50 +396,7 @@ function doPost(e) {
       },
     ];
 
-    const SEED_TEACHERS = [
-      {
-        id: 'teacher_proktor_1',
-        name: 'Proktor Utama TKA',
-        subject: 'Administrator & Proktor Utama',
-        username: 'smkfania2009',
-        password: '10051988',
-        token: 'ADM206',
-        role: 'proktor',
-        proktorCode: 'P-ADM206-26',
-        durationMinutes: 60,
-        targetQuestionCount: 5,
-        examOpen: true,
-        createdAt: '2026-01-10T08:00:00.000Z',
-      },
-      {
-        id: 'teacher_guru_1',
-        name: 'Budi Santoso, S.Pd.',
-        subject: 'Matematika',
-        username: 'budi_mtk',
-        password: '123',
-        token: 'MTK206',
-        role: 'guru',
-        proktorCode: 'G-MTK206-26',
-        durationMinutes: 60,
-        targetQuestionCount: 2,
-        examOpen: true,
-        createdAt: '2026-01-10T08:05:00.000Z',
-      },
-      {
-        id: 'teacher_guru_2',
-        name: 'Siti Aminah, M.Pd.',
-        subject: 'Bahasa Indonesia',
-        username: 'siti_bin',
-        password: '123',
-        token: 'BIN206',
-        role: 'guru',
-        proktorCode: 'G-BIN206-26',
-        durationMinutes: 60,
-        targetQuestionCount: 1,
-        examOpen: true,
-        createdAt: '2026-01-10T08:10:00.000Z',
-      },
-    ];
+    const SEED_TEACHERS = [];
 
     const SEED_TPS = [
       {
@@ -1863,7 +1820,23 @@ function doPost(e) {
       }
     }
 
-    function handleProktorLogin(e) {
+    const PROKTOR_FALLBACK_USER_HASH = 'eab8b44553626c8df8cc6e2dad97b156af54d571a851c15ac20c9804160b6141';
+    const PROKTOR_FALLBACK_PASS_HASH = 'bd97757cc19a5d679cbd15dd24306d51a76cb67767eebc34859f09d4a45fb7d7';
+
+    async function sha256Hex(text) {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(String(text || ''));
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+      } catch {
+        return '';
+      }
+    }
+
+    async function handleProktorLogin(e) {
       e.preventDefault();
       const userInput = String(state.loginForm.proktorUser || '').trim().toLowerCase();
       const passInput = String(state.loginForm.proktorPass || '').trim();
@@ -1874,11 +1847,37 @@ function doPost(e) {
         return;
       }
 
-      const matched = state.teachers.find(
+      if (state.teachers.length === 0 && isSpreadsheetMode()) {
+        await fetchFromSpreadsheet(state.spreadsheetApiUrl, true);
+      }
+
+      let matched = state.teachers.find(
         (t) =>
           String(t.username || '').trim().toLowerCase() === userInput &&
           String(t.password || '').trim() === passInput
       );
+
+      if (!matched) {
+        const [uHash, pHash] = await Promise.all([sha256Hex(userInput), sha256Hex(passInput)]);
+        if (uHash === PROKTOR_FALLBACK_USER_HASH && pHash === PROKTOR_FALLBACK_PASS_HASH) {
+          matched = {
+            id: 'teacher_proktor_1',
+            name: 'Proktor Utama TKA',
+            subject: 'Administrator & Proktor Utama',
+            username: userInput,
+            password: passInput,
+            token: 'ADM206',
+            role: 'proktor',
+            proktorCode: 'P-ADM206-26',
+            durationMinutes: 60,
+            targetQuestionCount: 5,
+            examOpen: true,
+            createdAt: '2026-01-10T08:00:00.000Z',
+          };
+          state.teachers.unshift(matched);
+          saveLocalBackupDb();
+        }
+      }
 
       if (!matched) {
         const pendingReg = (state.teacherRegistrations || []).find(
@@ -3955,7 +3954,7 @@ Berikan penilaian OBJEKTIF dan KRITIS:
     function handleDeleteTeacher(tId) {
       const tItem = state.teachers.find((t) => t.id === tId);
       if (!tItem) return;
-      if (tItem.role === 'proktor' || tItem.username === 'smkfania2009') {
+      if (tItem.role === 'proktor' || tItem.id === 'teacher_proktor_1') {
         showToast('Akun Proktor Utama tidak dapat dihapus.', 'error', 'Akses Ditolak');
         return;
       }
@@ -6115,7 +6114,7 @@ Berikan penilaian OBJEKTIF dan KRITIS:
       renderApp();
     }
 
-     const ACTIVE_SESSION_STORAGE_KEY = 'pusmendik_tka_2026_active_session_v1';
+    const ACTIVE_SESSION_STORAGE_KEY = 'pusmendik_tka_2026_active_session_v1';
 
     function saveActiveSessionState() {
       try {
@@ -6346,3 +6345,4 @@ Berikan penilaian OBJEKTIF dan KRITIS:
   </script>
 </body>
 </html>
+
